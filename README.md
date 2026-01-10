@@ -16,7 +16,7 @@ This bot implements an averaging-down strategy. There is **no exit logic, no sto
 
 ## Screenshot
 
-![AI Trading Bot UI](./docs/screenshot.png)
+![AI Trading Bot UI](AppGUI.png)
 
 ---
 

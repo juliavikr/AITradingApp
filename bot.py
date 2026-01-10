@@ -26,8 +26,8 @@ if not ALPACA_KEY or not ALPACA_SECRET:
 api = tradeapi.REST(ALPACA_KEY, ALPACA_SECRET, BASE_URL, api_version="v2")
 
 MAX_LEVELS = 20
-MIN_DRAWDOWN_PCT = 0.5         # minimum allowed drawdown input in percent
-MIN_PRICE_STEP = 0.05          # minimum spacing between levels in dollars (after rounding)
+MIN_DRAWDOWN_PCT = 0.5
+MIN_PRICE_STEP = 0.05
 
 def safe_float(x, default=None):
     try:
@@ -291,9 +291,6 @@ class TradingBotGUI:
         self.tree.grid(row=0, column=0, sticky="nsew")
         yscroll.grid(row=0, column=1, sticky="ns", padx=(6, 0))
 
-        # Double click = Arm
-        self.tree.bind("<Double-1>", lambda e: self.arm_selected())
-
         # Controls (no more confusing extra cancel button)
         controls = tk.Frame(root)
         controls.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 6))
@@ -365,7 +362,7 @@ class TradingBotGUI:
 
     def periodic_ui_refresh(self):
         self.refresh_all()
-        self.root.after(2000, self.periodic_ui_refresh)
+        self.root.after(5000, self.periodic_ui_refresh)
 
     def ui_set_status(self, text):
         self.root.after(0, lambda: self.status_var.set(text))
@@ -473,24 +470,10 @@ class TradingBotGUI:
 
         return levels
 
-    # ----------------------------
-    # Selection helpers
-    # ----------------------------
 
     def _selected_symbols(self):
-        items = self.tree.selection()
-        if not items:
-            return []
-        syms = []
-        for item in items:
-            vals = self.tree.item(item)["values"]
-            if vals:
-                syms.append(vals[0])
-        return syms
+        return list(self.tree.selection())
 
-    # ----------------------------
-    # UI actions
-    # ----------------------------
 
     def add_equity(self):
         symbol = self.symbol_entry.get().strip().upper()
@@ -639,7 +622,7 @@ class TradingBotGUI:
             messagebox.showwarning("No Selection", "Select at least one equity.")
             return
 
-        # Two explicit choices — no surprises
+        # Two explicit choices
         choice = messagebox.askyesnocancel(
             "Remove Options",
             "Yes = Remove + cancel bot orders at broker\n"
@@ -724,10 +707,6 @@ class TradingBotGUI:
             self.root.after(0, _render)
 
         threading.Thread(target=_run, daemon=True).start()
-
-    # ----------------------------
-    # Trading logic (only Active symbols)
-    # ----------------------------
 
     def place_limit_level(self, symbol, price, level, open_client_ids, submitted_client_ids):
         cid = client_id_level(symbol, level)
@@ -865,10 +844,6 @@ class TradingBotGUI:
 
         self.save_equities()
 
-    # ----------------------------
-    # UI refresh
-    # ----------------------------
-
     def refresh_account(self):
         try:
             acct = api.get_account()
@@ -886,12 +861,18 @@ class TradingBotGUI:
     def refresh_table(self):
         positions = fetch_positions_map()
 
-        for row in self.tree.get_children():
-            self.tree.delete(row)
-
         with self.lock:
             items = list(self.equities.items())
 
+        # Track which symbols should exist
+        desired = set(sym for sym, _ in items)
+
+        # Delete rows that no longer exist
+        for iid in list(self.tree.get_children()):
+            if iid not in desired:
+                self.tree.delete(iid)
+
+        # Insert/update rows
         for symbol, data in items:
             p = positions.get(symbol, {})
             qty = p.get("qty", 0) or 0
@@ -900,27 +881,26 @@ class TradingBotGUI:
             upl = p.get("unrealized_pl", 0) or 0
 
             levels_text = self._levels_summary(data.get("levels"))
-            self.tree.insert(
-                "",
-                "end",
-                values=(
-                    symbol,
-                    f"{qty:.4g}" if qty else "0",
-                    f"{avg_entry:.2f}" if avg_entry else "—",
-                    f"{last:.2f}" if last else "—",
-                    f"{upl:.2f}" if upl else "0.00",
-                    levels_text,
-                    data.get("status", STATUS_INACTIVE),
-                ),
+
+            values = (
+                symbol,
+                f"{qty:.4g}" if qty else "0",
+                f"{avg_entry:.2f}" if avg_entry else "—",
+                f"{last:.2f}" if last else "—",
+                f"{upl:.2f}" if upl else "0.00",
+                levels_text,
+                data.get("status", STATUS_INACTIVE),
             )
+
+            if self.tree.exists(symbol):
+                self.tree.item(symbol, values=values)
+            else:
+                self.tree.insert("", "end", iid=symbol, values=values)
 
     def refresh_all(self):
         self.refresh_account()
         self.refresh_table()
 
-    # ----------------------------
-    # Background loop
-    # ----------------------------
 
     def auto_update(self):
         while self.running:
