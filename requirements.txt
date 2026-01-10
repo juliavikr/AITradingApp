@@ -1,0 +1,1 @@
+pip install alpaca-trade-api python-dotenv openai
